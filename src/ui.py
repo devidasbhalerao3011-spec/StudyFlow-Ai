@@ -9,6 +9,15 @@ from src.youtube import get_transcript
 
 
 # =====================================================
+# APP LIMITS
+# =====================================================
+
+MAX_CHAT_HISTORY = 20
+MAX_SOURCE_CHARACTERS = 100_000
+MAX_ANSWER_CHARACTERS = 16_000
+
+
+# =====================================================
 # SESSION STATE
 # =====================================================
 
@@ -56,6 +65,28 @@ def init_state():
         st.session_state.selected_task = tasks[0]
 
 
+def limit_chat_history():
+    """Keep recent chat messages to reduce page memory use."""
+    if len(st.session_state.outputs) > MAX_CHAT_HISTORY:
+        st.session_state.outputs = (
+            st.session_state.outputs[-MAX_CHAT_HISTORY:]
+        )
+
+
+def limit_source_text(text):
+    """Avoid retaining extremely large documents in session memory."""
+    text = str(text or "")
+
+    if len(text) > MAX_SOURCE_CHARACTERS:
+        st.warning(
+            "The source is very large. Only the first "
+            f"{MAX_SOURCE_CHARACTERS:,} characters will be used."
+        )
+        return text[:MAX_SOURCE_CHARACTERS]
+
+    return text
+
+
 # =====================================================
 # DOWNLOAD HELPERS
 # =====================================================
@@ -89,169 +120,478 @@ def render_download_button(item, index, location="chat"):
         ),
         mime="text/plain",
         key=f"{location}_download_{index}",
+        use_container_width=True,
     )
 
 
 # =====================================================
-# THEME
+# RESPONSIVE THEME
 # =====================================================
 
 def load_styles():
     st.markdown("""
     <style>
+
+    /* -----------------------------------------------
+       GLOBAL SETTINGS
+    ----------------------------------------------- */
+
+    :root {
+        color-scheme: dark;
+    }
+
+    html, body, [data-testid="stAppViewContainer"] {
+        background-color: #0B1020 !important;
+        color: #F3F4F6 !important;
+    }
+
     .stApp {
-        background: #0B1020;
-        color: #F3F4F6;
+        background-color: #0B1020 !important;
+        color: #F3F4F6 !important;
         font-family: Arial, sans-serif;
     }
 
     [data-testid="stMain"] {
-        background: #0B1020;
+        background-color: #0B1020 !important;
     }
 
+    [data-testid="stMainBlockContainer"] {
+        width: 100%;
+        max-width: 1200px;
+        padding: 2rem 2.5rem 6rem 2.5rem;
+    }
+
+    /* -----------------------------------------------
+       TEXT COLOURS
+    ----------------------------------------------- */
+
+    .stApp,
+    .stApp p,
+    .stApp li,
+    .stApp label,
+    .stApp span,
+    .stApp div {
+        color: inherit;
+    }
+
+    .stMarkdown,
+    .stMarkdown p,
+    .stMarkdown li,
+    .stMarkdown h1,
+    .stMarkdown h2,
+    .stMarkdown h3,
+    .stMarkdown h4,
+    .stMarkdown strong {
+        color: #F3F4F6;
+    }
+
+    .stMarkdown a {
+        color: #C4B5FD !important;
+    }
+
+    .stCaption,
+    [data-testid="stCaptionContainer"] {
+        color: #B6C0D1 !important;
+    }
+
+    /* -----------------------------------------------
+       SIDEBAR
+    ----------------------------------------------- */
+
     [data-testid="stSidebar"] {
-        background: #111827;
-        border-right: 1px solid #263149;
+        background-color: #111827 !important;
+        border-right: 1px solid #29364B;
     }
 
     [data-testid="stSidebar"] > div {
-        background: #111827;
+        background-color: #111827 !important;
+    }
+
+    [data-testid="stSidebar"] .stMarkdown,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] p {
+        color: #E5E7EB !important;
     }
 
     .brand {
         font-size: 25px;
         font-weight: 700;
-        color: #FFFFFF;
+        color: #FFFFFF !important;
         margin-top: 8px;
     }
 
     .brand span,
     .main-title span {
-        color: #A78BFA;
+        color: #A78BFA !important;
     }
 
     .tagline {
-        color: #9CA3AF;
+        color: #B6C0D1 !important;
         font-size: 12px;
-        margin-bottom: 25px;
+        margin-bottom: 22px;
     }
 
     .sidebar-heading {
-        color: #9CA3AF;
+        color: #AEB9CC !important;
         font-size: 11px;
-        font-weight: 600;
+        font-weight: 700;
         letter-spacing: 1px;
-        margin-top: 22px;
+        margin-top: 20px;
         margin-bottom: 9px;
     }
 
     [data-testid="stSidebar"] .stButton button {
-        background: transparent !important;
+        background-color: transparent !important;
         color: #F3F4F6 !important;
-        border: none !important;
+        border: 1px solid transparent !important;
         box-shadow: none !important;
         text-align: left !important;
         justify-content: flex-start !important;
-        padding: 8px 5px !important;
-        min-height: 38px !important;
+        padding: 9px 10px !important;
+        min-height: 40px !important;
         font-size: 14px !important;
+        width: 100%;
     }
 
     [data-testid="stSidebar"] .stButton button:hover {
-        background: #202B3D !important;
+        background-color: #26334A !important;
+        border-color: #475569 !important;
         color: #FFFFFF !important;
     }
 
+    /* -----------------------------------------------
+       MAIN TITLE
+    ----------------------------------------------- */
+
     .main-title {
         text-align: center;
-        font-size: 36px;
+        font-size: clamp(27px, 4vw, 40px);
+        line-height: 1.25;
         font-weight: 700;
-        color: #FFFFFF;
-        margin-top: 12vh;
+        color: #FFFFFF !important;
+        margin-top: 9vh;
         margin-bottom: 12px;
     }
 
     .subtitle {
         text-align: center;
-        color: #9CA3AF;
+        color: #C0C8D6 !important;
         font-size: 15px;
-        margin-bottom: 32px;
+        line-height: 1.6;
+        margin-bottom: 30px;
     }
+
+    /* -----------------------------------------------
+       CHAT MESSAGES
+    ----------------------------------------------- */
 
     [data-testid="stChatMessage"] {
-        background: #151E30;
-        border: 1px solid #29364B;
-        border-radius: 13px;
-        padding: 14px;
-        margin-bottom: 12px;
+        background-color: #172238 !important;
+        border: 1px solid #35445E !important;
+        border-radius: 14px !important;
+        padding: 14px !important;
+        margin-bottom: 13px !important;
+        width: 100%;
+        overflow-wrap: anywhere;
     }
 
+    [data-testid="stChatMessage"] p,
+    [data-testid="stChatMessage"] li,
+    [data-testid="stChatMessage"] h1,
+    [data-testid="stChatMessage"] h2,
+    [data-testid="stChatMessage"] h3,
+    [data-testid="stChatMessage"] strong {
+        color: #F3F4F6 !important;
+    }
+
+    [data-testid="stChatMessage"] pre {
+        background-color: #080E1B !important;
+        border: 1px solid #3B4963 !important;
+        border-radius: 9px;
+        max-width: 100%;
+        overflow-x: auto;
+    }
+
+    [data-testid="stChatMessage"] code {
+        color: #E9D5FF !important;
+    }
+
+    /* -----------------------------------------------
+       CHAT INPUT
+    ----------------------------------------------- */
+
     [data-testid="stChatInput"] {
-        background: #111827 !important;
-        border: 1px solid #39445F !important;
-        border-radius: 18px !important;
+        background-color: #172238 !important;
+        border: 1px solid #64748B !important;
+        border-radius: 16px !important;
     }
 
     [data-testid="stChatInput"] textarea {
-        color: #F3F4F6 !important;
+        color: #FFFFFF !important;
         font-size: 16px !important;
+        background-color: transparent !important;
     }
 
     [data-testid="stChatInput"] textarea::placeholder {
-        color: #A1A1AA !important;
+        color: #B6C0D1 !important;
+        opacity: 1 !important;
     }
 
     [data-testid="stChatInput"] button {
-        color: #A78BFA !important;
+        color: #C4B5FD !important;
     }
 
-    .stButton button {
-        background: #29364B;
-        color: #FFFFFF;
-        border: 1px solid #374151;
-        border-radius: 9px;
-        box-shadow: none;
+    /* -----------------------------------------------
+       BUTTONS
+    ----------------------------------------------- */
+
+    .stButton button,
+    .stDownloadButton button {
+        background-color: #29364B !important;
+        color: #FFFFFF !important;
+        border: 1px solid #64748B !important;
+        border-radius: 10px !important;
+        min-height: 42px;
+        font-weight: 600;
+        box-shadow: none !important;
+    }
+
+    .stButton button:hover,
+    .stDownloadButton button:hover {
+        background-color: #6D28D9 !important;
+        border-color: #A78BFA !important;
+        color: #FFFFFF !important;
+    }
+
+    .stButton button:focus,
+    .stDownloadButton button:focus {
+        border-color: #C4B5FD !important;
+        box-shadow: 0 0 0 2px #6D28D9 !important;
+    }
+
+    /* -----------------------------------------------
+       INPUTS
+    ----------------------------------------------- */
+
+    [data-testid="stTextInput"] input,
+    [data-testid="stTextArea"] textarea,
+    [data-testid="stNumberInput"] input {
+        background-color: #172238 !important;
+        color: #FFFFFF !important;
+        border: 1px solid #64748B !important;
+        border-radius: 9px !important;
+    }
+
+    [data-testid="stTextInput"] input::placeholder,
+    [data-testid="stTextArea"] textarea::placeholder {
+        color: #B6C0D1 !important;
+        opacity: 1 !important;
     }
 
     [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
-        background: #1F2937 !important;
+        background-color: #172238 !important;
         color: #FFFFFF !important;
-        border-color: #374151 !important;
+        border-color: #64748B !important;
     }
+
+    [data-testid="stSelectbox"] div,
+    [data-testid="stSelectbox"] input {
+        color: #FFFFFF !important;
+    }
+
+    [role="listbox"],
+    [role="option"] {
+        background-color: #172238 !important;
+        color: #FFFFFF !important;
+    }
+
+    /* -----------------------------------------------
+       FILE UPLOAD
+    ----------------------------------------------- */
+
+    [data-testid="stFileUploader"] {
+        background-color: #172238 !important;
+        border: 1px dashed #64748B !important;
+        border-radius: 12px !important;
+        padding: 8px !important;
+    }
+
+    [data-testid="stFileUploader"] section {
+        background-color: #172238 !important;
+    }
+
+    [data-testid="stFileUploader"] button {
+        color: #FFFFFF !important;
+        background-color: #29364B !important;
+    }
+
+    [data-testid="stFileUploader"] small {
+        color: #CBD5E1 !important;
+    }
+
+    /* -----------------------------------------------
+       EXPANDERS
+    ----------------------------------------------- */
 
     [data-testid="stExpander"] {
-        background: #1F2937;
-        border: 1px solid #374151;
-        border-radius: 10px;
-    }
-
-    [data-testid="stDownloadButton"] button {
-        background: #29364B !important;
-        color: #FFFFFF !important;
+        background-color: #172238 !important;
         border: 1px solid #475569 !important;
-        border-radius: 8px !important;
+        border-radius: 11px !important;
     }
 
-    [data-testid="stDownloadButton"] button:hover {
-        background: #7C3AED !important;
-        border-color: #7C3AED !important;
+    [data-testid="stExpander"] summary {
+        color: #FFFFFF !important;
     }
+
+    [data-testid="stExpander"] summary p {
+        color: #FFFFFF !important;
+    }
+
+    /* -----------------------------------------------
+       ALERTS
+    ----------------------------------------------- */
+
+    [data-testid="stAlert"] {
+        border-radius: 10px !important;
+    }
+
+    /* -----------------------------------------------
+       TABLES
+    ----------------------------------------------- */
+
+    [data-testid="stDataFrame"],
+    [data-testid="stTable"] {
+        max-width: 100%;
+        overflow-x: auto;
+    }
+
+    /* -----------------------------------------------
+       HIDE STREAMLIT FOOTER
+    ----------------------------------------------- */
 
     #MainMenu,
     footer {
         visibility: hidden;
     }
 
-    @media (max-width: 600px) {
+    /* -----------------------------------------------
+       TABLET VIEW
+    ----------------------------------------------- */
+
+    @media screen and (max-width: 900px) {
+
+        [data-testid="stMainBlockContainer"] {
+            padding: 1.5rem 1.5rem 5rem 1.5rem;
+        }
+
         .main-title {
-            font-size: 28px;
-            margin-top: 8vh;
+            margin-top: 6vh;
+            font-size: 32px;
+        }
+
+        [data-testid="stChatMessage"] {
+            padding: 12px !important;
+        }
+    }
+
+    /* -----------------------------------------------
+       MOBILE VIEW
+    ----------------------------------------------- */
+
+    @media screen and (max-width: 600px) {
+
+        [data-testid="stMainBlockContainer"] {
+            padding: 1rem 0.75rem 5.5rem 0.75rem !important;
+            max-width: 100% !important;
+        }
+
+        .main-title {
+            font-size: 27px !important;
+            line-height: 1.3 !important;
+            margin-top: 5vh !important;
+            margin-bottom: 10px !important;
+            padding: 0 5px;
         }
 
         .subtitle {
-            font-size: 13px;
+            font-size: 13px !important;
+            line-height: 1.5 !important;
+            margin-bottom: 22px !important;
+            padding: 0 8px;
+        }
+
+        .brand {
+            font-size: 22px !important;
+        }
+
+        .tagline {
+            font-size: 12px !important;
+        }
+
+        [data-testid="stChatMessage"] {
+            padding: 10px !important;
+            border-radius: 11px !important;
+            margin-bottom: 10px !important;
+        }
+
+        [data-testid="stChatMessage"] p,
+        [data-testid="stChatMessage"] li {
+            font-size: 14px !important;
+            line-height: 1.6 !important;
+        }
+
+        [data-testid="stChatInput"] {
+            border-radius: 13px !important;
+        }
+
+        [data-testid="stChatInput"] textarea {
+            font-size: 16px !important;
+        }
+
+        .stButton button,
+        .stDownloadButton button {
+            min-height: 44px !important;
+            font-size: 14px !important;
+        }
+
+        [data-testid="stFileUploader"] {
+            padding: 5px !important;
+        }
+
+        [data-testid="stExpander"] {
+            border-radius: 9px !important;
+        }
+
+        .stMarkdown pre {
+            max-width: 100% !important;
+            overflow-x: auto !important;
         }
     }
+
+    /* -----------------------------------------------
+       SMALL MOBILE VIEW
+    ----------------------------------------------- */
+
+    @media screen and (max-width: 380px) {
+
+        [data-testid="stMainBlockContainer"] {
+            padding-left: 0.5rem !important;
+            padding-right: 0.5rem !important;
+        }
+
+        .main-title {
+            font-size: 24px !important;
+        }
+
+        .subtitle {
+            font-size: 12px !important;
+        }
+
+        [data-testid="stChatMessage"] {
+            padding: 8px !important;
+        }
+    }
+
     </style>
     """, unsafe_allow_html=True)
 
@@ -290,11 +630,6 @@ def is_simple_greeting(message):
 # =====================================================
 
 def is_general_chat(question):
-    """
-    Recognize ordinary questions that should not be
-    forced into a study-resource generation task.
-    """
-
     text = question.lower().strip()
 
     general_starts = (
@@ -332,6 +667,8 @@ def add_pending_output(question, task, output_type="study"):
         "error": "",
     })
 
+    limit_chat_history()
+
 
 def generate_task(task):
     if not st.session_state.source_text.strip():
@@ -358,18 +695,14 @@ def submit_question(question):
 
     question = question.strip()
 
-    # Greetings use a local response.
     if is_simple_greeting(question):
-        task = "General conversation"
-
         add_pending_output(
             question,
-            task,
+            "General conversation",
             output_type="greeting"
         )
         return
 
-    # Ordinary questions use conversational AI.
     if is_general_chat(question):
         add_pending_output(
             question,
@@ -378,7 +711,6 @@ def submit_question(question):
         )
         return
 
-    # Other messages use the selected study task.
     task = st.session_state.selected_task
 
     if not task:
@@ -408,10 +740,6 @@ def generate_pending_answer(item):
 
     try:
 
-        # ---------------------------------------------
-        # GREETING RESPONSE
-        # ---------------------------------------------
-
         if output_type == "greeting":
 
             item["answer"] = (
@@ -429,10 +757,6 @@ def generate_pending_answer(item):
             item["status"] = "complete"
             item["error"] = ""
             return
-
-        # ---------------------------------------------
-        # GENERAL CONVERSATION
-        # ---------------------------------------------
 
         if output_type == "general":
 
@@ -452,10 +776,6 @@ def generate_pending_answer(item):
                 question,
                 system=system_prompt
             )
-
-        # ---------------------------------------------
-        # STUDY RESOURCE GENERATION
-        # ---------------------------------------------
 
         else:
 
@@ -477,7 +797,15 @@ def generate_pending_answer(item):
                 "The AI returned an empty response."
             )
 
-        item["answer"] = answer.strip()
+        answer = answer.strip()
+
+        if len(answer) > MAX_ANSWER_CHARACTERS:
+            answer = (
+                answer[:MAX_ANSWER_CHARACTERS]
+                + "\n\n[Response shortened to reduce memory usage.]"
+            )
+
+        item["answer"] = answer
         item["status"] = "complete"
         item["error"] = ""
 
@@ -504,6 +832,9 @@ def process_uploaded_file(uploaded_file):
             text = extract_text(uploaded_file)
 
         if text and text.strip():
+
+            text = limit_source_text(text)
+
             st.session_state.source_text = text
             st.session_state.source_name = uploaded_file.name
 
@@ -524,6 +855,7 @@ def process_uploaded_file(uploaded_file):
 # =====================================================
 
 def render_youtube_tools():
+
     with st.expander("YouTube lecture"):
 
         url = st.text_input(
@@ -532,7 +864,11 @@ def render_youtube_tools():
             placeholder="Paste a YouTube link",
         )
 
-        if st.button("Load transcript", key="load_transcript"):
+        if st.button(
+            "Load transcript",
+            key="load_transcript",
+            use_container_width=True,
+        ):
 
             if not url.strip():
                 st.warning("Enter a YouTube URL first.")
@@ -543,6 +879,9 @@ def render_youtube_tools():
                     transcript = get_transcript(url)
 
                 if transcript:
+
+                    transcript = limit_source_text(transcript)
+
                     st.session_state.source_text = transcript
                     st.session_state.source_name = "YouTube transcript"
 
@@ -566,6 +905,7 @@ def start_new_chat():
 
 
 def render_sidebar():
+
     tasks = get_available_tasks()
 
     with st.sidebar:
@@ -639,6 +979,7 @@ def render_sidebar():
             if st.button(
                 "Use uploaded file",
                 key="use_sidebar_file",
+                use_container_width=True,
             ):
                 process_uploaded_file(sidebar_file)
 
@@ -649,7 +990,11 @@ def render_sidebar():
             st.caption("CURRENT SOURCE")
             st.write(st.session_state.source_name)
 
-            if st.button("Remove source", key="remove_source"):
+            if st.button(
+                "Remove source",
+                key="remove_source",
+                use_container_width=True,
+            ):
                 st.session_state.source_text = ""
                 st.session_state.source_name = ""
                 st.rerun()
@@ -677,7 +1022,7 @@ def render_sidebar():
             st.session_state.selected_task = selected
 
         st.markdown(
-            '<div style="color:#9CA3AF;font-size:11px;'
+            '<div style="color:#AEB9CC;font-size:11px;'
             'margin-top:25px;text-align:center;">'
             'StudyFlow AI'
             '</div>',
@@ -691,7 +1036,10 @@ def render_sidebar():
 
 def render_chat_history():
 
-    for index, item in enumerate(st.session_state.outputs):
+    # Display only the most recent messages.
+    recent_outputs = st.session_state.outputs[-MAX_CHAT_HISTORY:]
+
+    for index, item in enumerate(recent_outputs):
 
         with st.chat_message("user"):
             st.write(item["question"])
@@ -750,8 +1098,8 @@ def render_chat_page():
     else:
 
         st.markdown(
-            '<div style="text-align:center;color:#A78BFA;'
-            'font-size:20px;font-weight:600;margin-bottom:25px;">'
+            '<div style="text-align:center;color:#C4B5FD;'
+            'font-size:20px;font-weight:600;margin-bottom:20px;">'
             'StudyFlow AI'
             '</div>',
             unsafe_allow_html=True,
